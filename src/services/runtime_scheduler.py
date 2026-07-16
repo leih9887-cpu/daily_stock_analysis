@@ -96,6 +96,69 @@ def build_agent_event_monitor_background_tasks(
     }]
 
 
+def _portfolio_watchlist_sync_interval_seconds(config: Config) -> int:
+    """Return the validated Portfolio ↔ STOCK_LIST sync interval in seconds."""
+    interval_seconds = getattr(config, "portfolio_watchlist_sync_interval_seconds", 300)
+    try:
+        interval_seconds = int(interval_seconds)
+    except (TypeError, ValueError):  # pragma: no cover - defensive branch
+        logger.warning(
+            "Invalid PORTFOLIO_WATCHLIST_SYNC_INTERVAL_SECONDS=%r; use fallback 300",
+            interval_seconds,
+        )
+        interval_seconds = 300
+    # Scheduler clamps to a minimum of 30 seconds; align here.
+    return max(30, min(interval_seconds, 86400))
+
+
+def build_portfolio_watchlist_sync_background_tasks(
+    config: Config,
+    *,
+    config_provider: Callable[[], Config],
+) -> List[Dict[str, Any]]:
+    """Build a scheduler background task that mirrors active holdings into STOCK_LIST.
+
+    The task is registered only when ``portfolio_watchlist_sync_enabled`` is true and
+    is otherwise a no-op for backwards compatibility with the legacy watchlist-only
+    StockAnalysis flow. See ``src/services/portfolio_watchlist_sync.py`` for the
+    full contract.
+    """
+    if not getattr(config, "portfolio_watchlist_sync_enabled", False):
+        return []
+
+    from src.services.portfolio_watchlist_sync import PortfolioWatchlistSync
+
+    interval_seconds = _portfolio_watchlist_sync_interval_seconds(config)
+    try:
+        sync = PortfolioWatchlistSync(config_provider=config_provider)
+    except Exception as exc:  # pragma: no cover - defensive branch
+        logger.warning(
+            "Failed to initialize PortfolioWatchlistSync for background task: %s",
+            exc,
+        )
+        return []
+
+    def portfolio_watchlist_sync_task() -> None:
+        result = sync.run_once()
+        if result.error:
+            logger.warning(
+                "[PortfolioWatchlistSync] background pass failed: %s",
+                result.error,
+            )
+        elif result.written and result.appended_symbols:
+            logger.info(
+                "[PortfolioWatchlistSync] appended %d symbol(s) in background pass",
+                len(result.appended_symbols),
+            )
+
+    return [{
+        "task": portfolio_watchlist_sync_task,
+        "interval_seconds": interval_seconds,
+        "run_immediately": True,
+        "name": "portfolio_watchlist_sync",
+    }]
+
+
 class RuntimeSchedulerService:
     """Manage scheduled analysis inside the current API/Web/Desktop process."""
 
@@ -211,7 +274,10 @@ class RuntimeSchedulerService:
     def _current_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
         if self._background_tasks_provider is not None:
             return self._background_tasks_provider(config)
-        return self._current_agent_event_monitor_background_tasks(config)
+        tasks: List[Dict[str, Any]] = []
+        tasks.extend(self._current_agent_event_monitor_background_tasks(config))
+        tasks.extend(self._current_portfolio_watchlist_sync_background_tasks(config))
+        return tasks
 
     def _current_agent_event_monitor_background_tasks(self, config: Config) -> List[Dict[str, Any]]:
         name = "agent_event_monitor"
@@ -236,6 +302,44 @@ class RuntimeSchedulerService:
             interval_seconds = int(cached["interval_seconds"])
         else:
             interval_seconds = _agent_event_monitor_interval_seconds(config)
+
+        run_immediately = (
+            bool(cached.get("run_immediately", False))
+            and name not in self._background_task_registered_names
+        )
+        self._background_task_registered_names.add(name)
+        return [{
+            "task": cached["task"],
+            "interval_seconds": interval_seconds,
+            "run_immediately": run_immediately,
+            "name": name,
+        }]
+
+    def _current_portfolio_watchlist_sync_background_tasks(
+        self, config: Config
+    ) -> List[Dict[str, Any]]:
+        name = "portfolio_watchlist_sync"
+        if not getattr(config, "portfolio_watchlist_sync_enabled", False):
+            self._background_task_cache.pop(name, None)
+            self._background_task_registered_names.discard(name)
+            return []
+
+        cached = self._background_task_cache.get(name)
+        if cached is None:
+            entries = build_portfolio_watchlist_sync_background_tasks(
+                config,
+                config_provider=self._reload_config,
+            )
+            if not entries:
+                self._background_task_cache.pop(name, None)
+                self._background_task_registered_names.discard(name)
+                return []
+            cached = dict(entries[0])
+            cached["name"] = name
+            self._background_task_cache[name] = cached
+            interval_seconds = int(cached["interval_seconds"])
+        else:
+            interval_seconds = _portfolio_watchlist_sync_interval_seconds(config)
 
         run_immediately = (
             bool(cached.get("run_immediately", False))

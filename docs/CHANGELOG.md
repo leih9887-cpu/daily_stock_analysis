@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 > For user-friendly release highlights, see the [GitHub Releases](https://github.com/ZhuLinsen/daily_stock_analysis/releases) page.
 
 ## [Unreleased]
+- [新功能] 新增 `PortfolioWatchlistSync`: 将所有 active 账户非零 CN 持仓单向追加到 `STOCK_LIST`，保留原有独有项（如 `600237`）；通过新增 `PORTFOLIO_WATCHLIST_SYNC_ENABLED`（默认 false）和 `PORTFOLIO_WATCHLIST_SYNC_INTERVAL_SECONDS`（默认 300）控制，启用时由 schedule 模式后台任务周期执行；写失败 fail-open，跳过无变化写，仅触碰 `.env`，同步行为完全可关闭以保持向后兼容。
 - [改进] GitHub Actions 每日分析工作流补齐 TickFlow 数据源环境变量映射，并收敛 README 数据源稳定性说明到完整指南。
 - [修复] WebUI 启动时显式 `--host` / `--port` 不再被 `.env` 中的 `WEBUI_HOST` / `WEBUI_PORT` 覆盖，未传 CLI 参数时统一使用解析后的运行时配置。
 - [改进] GitHub Actions: 每日分析工作流（`00-daily-analysis.yml`）新增钉钉通知环境变量映射，支持在云端定时任务中直接使用钉钉机器人。

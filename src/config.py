@@ -1077,6 +1077,12 @@ class Config:
     portfolio_risk_lookback_days: int = 180
     portfolio_fx_update_enabled: bool = True
 
+    # === Portfolio ↔ STOCK_LIST sync (D 选项: 长期联动) ===
+    # 开启后, scheduler 周期任务会把所有 active 账户持仓的 symbol 单向追加到 STOCK_LIST,
+    # 保留 STOCK_LIST 原有独有项. 默认关闭以保持向后兼容.
+    portfolio_watchlist_sync_enabled: bool = False
+    portfolio_watchlist_sync_interval_seconds: int = 300  # 5 分钟; scheduler 最小为 30s
+
     # Discord 机器人状态
     discord_bot_status: str = "A股智能分析 | /help"
 
@@ -2084,6 +2090,16 @@ class Config:
                 minimum=1,
             ),
             portfolio_fx_update_enabled=os.getenv('PORTFOLIO_FX_UPDATE_ENABLED', 'true').lower() == 'true',
+            portfolio_watchlist_sync_enabled=os.getenv(
+                'PORTFOLIO_WATCHLIST_SYNC_ENABLED', 'false'
+            ).lower() == 'true',
+            portfolio_watchlist_sync_interval_seconds=parse_env_int(
+                os.getenv('PORTFOLIO_WATCHLIST_SYNC_INTERVAL_SECONDS'),
+                300,
+                field_name='PORTFOLIO_WATCHLIST_SYNC_INTERVAL_SECONDS',
+                minimum=30,
+                maximum=86400,
+            ),
             alphasift_enabled=parse_env_bool(os.getenv('ALPHASIFT_ENABLED'), default=False),
             alphasift_install_spec=(
                 DEFAULT_ALPHASIFT_INSTALL_SPEC

@@ -1041,6 +1041,24 @@ STOCK_GROUP_2=002594,AAPL
 EMAIL_GROUP_2=user2@example.com
 ```
 
+### 持仓与 STOCK_LIST 联动同步
+
+`STOCK_LIST`（自选股 / 推送范围）与持仓账本是两套独立数据：当你在 Web 持仓页或 CSV 导入中新建交易后，**不会**自动出现在 `STOCK_LIST`，因此后续推送 / 分析仍然只跑 `STOCK_LIST` 中已有的代码。开启下方联动后，schedule 模式下的后台任务会周期性把所有 `is_active=True` 账户的非零 CN 持仓 symbol 单向追加到 `STOCK_LIST`，并保留你已加入但不出现在持仓里的“独有项”（例如 `600237`）。
+
+- 适用场景：用户主要在 Web 持仓页面维护真实持仓，希望下次推送立刻覆盖新买入
+- 默认行为：`PORTFOLIO_WATCHLIST_SYNC_ENABLED=false`，与旧版保持完全一致，不会改动现有 watchlist
+- 同步范围：仅 CN 持仓（`market == 'cn'` 且 `quantity > 0`），港美股持仓不进入 `STOCK_LIST`
+- 失败语义：写 `.env` 失败、连接错误等异常会被记录为 warning 并跳过本次，scheduler 循环不会中断
+- 节流：相同合并集合不会重复写入；空持仓或与上次一致时本次直接 no-op
+- 关闭方式：在 `.env` 中设置 `PORTFOLIO_WATCHLIST_SYNC_ENABLED=false`，下次重启生效；已合并过的项会保留在 `.env`，下次开启不会重复追加
+- 不会做：删除 `STOCK_LIST` 中“持仓之外”的代码、修改任何其他配置项、调用行情接口拉价、不在 schedule 模式（纯 CLI 一次性分析）下自动触发
+
+```bash
+# 推荐最小启用配置（仅在确认需要联动时复制到 .env）
+PORTFOLIO_WATCHLIST_SYNC_ENABLED=true
+PORTFOLIO_WATCHLIST_SYNC_INTERVAL_SECONDS=300   # 默认 5 分钟；scheduler 最小 30 秒
+```
+
 ### 自定义 Webhook
 
 支持任意 POST JSON 的 Webhook，包括：

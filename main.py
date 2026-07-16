@@ -1492,6 +1492,42 @@ def main() -> int:
                     "name": "agent_event_monitor",
                 })
 
+            if getattr(config, 'portfolio_watchlist_sync_enabled', False):
+                from src.services.portfolio_watchlist_sync import PortfolioWatchlistSync
+
+                watchlist_sync_interval = max(
+                    30,
+                    int(getattr(config, 'portfolio_watchlist_sync_interval_seconds', 300) or 300),
+                )
+                try:
+                    watchlist_sync = PortfolioWatchlistSync(
+                        config_provider=_reload_runtime_config,
+                    )
+
+                    def portfolio_watchlist_sync_task():
+                        try:
+                            result = watchlist_sync.run_once()
+                        except Exception as exc:  # pragma: no cover - defensive guard
+                            logger.warning("[PortfolioWatchlistSync] background pass failed: %s", exc)
+                            return
+                        if result.error:
+                            logger.warning("[PortfolioWatchlistSync] %s", result.error)
+                        elif result.written and result.appended_symbols:
+                            logger.info(
+                                "[PortfolioWatchlistSync] appended %d symbol(s): %s",
+                                len(result.appended_symbols),
+                                ','.join(result.appended_symbols),
+                            )
+
+                    background_tasks.append({
+                        "task": portfolio_watchlist_sync_task,
+                        "interval_seconds": watchlist_sync_interval,
+                        "run_immediately": True,
+                        "name": "portfolio_watchlist_sync",
+                    })
+                except Exception as exc:  # pragma: no cover - defensive guard
+                    logger.warning("Failed to register portfolio_watchlist_sync background task: %s", exc)
+
             schedule_kwargs = {
                 "task": scheduled_task,
                 "schedule_time": config.schedule_time,

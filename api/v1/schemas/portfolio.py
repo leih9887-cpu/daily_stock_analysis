@@ -151,6 +151,7 @@ class PortfolioCorporateActionListResponse(BaseModel):
 
 class PortfolioPositionItem(BaseModel):
     symbol: str
+    name: Optional[str] = Field(None, description="Stock display name (e.g. 贵州茅台)")
     market: str
     currency: str
     quantity: float

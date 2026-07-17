@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
-from data_provider.base import canonical_stock_code, normalize_stock_code
+from data_provider.base import DataFetcherManager, canonical_stock_code, normalize_stock_code
 from src.config import get_config
 from src.repositories.portfolio_repo import (
     DuplicateTradeDedupHashError,
@@ -1113,6 +1113,7 @@ class PortfolioService:
             position_rows.append(
                 {
                     "symbol": symbol,
+                    "name": self._resolve_position_name(symbol),
                     "market": market,
                     "currency": currency,
                     "quantity": round(qty, 8),
@@ -1137,6 +1138,19 @@ class PortfolioService:
             total_cost_base += cost_base
 
         return position_rows, lot_rows, market_value_base, total_cost_base, fx_stale
+
+    @staticmethod
+    def _resolve_position_name(symbol: str) -> Optional[str]:
+        """Best-effort stock name lookup; never raises and never blocks on realtime sources."""
+        try:
+            manager = DataFetcherManager()
+        except Exception:  # pragma: no cover - defensive guard
+            return None
+        try:
+            return manager.get_stock_name(symbol, allow_realtime=False)
+        except Exception:
+            logger.warning("[PortfolioService] get_stock_name failed for %s", symbol, exc_info=True)
+            return None
 
     def _resolve_position_price(
         self,

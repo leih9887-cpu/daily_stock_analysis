@@ -100,7 +100,14 @@ const PORTFOLIO_LIMITATION_LABELS: Record<string, Record<PortfolioPageLanguage, 
 type PendingDelete =
   | { eventType: 'trade'; id: number; message: string }
   | { eventType: 'cash'; id: number; message: string }
-  | { eventType: 'corporate'; id: number; message: string };
+  | { eventType: 'corporate'; id: number; message: string }
+  | {
+      eventType: 'position';
+      accountId: number;
+      symbol: string;
+      market: string;
+      message: string;
+    };
 
 type PendingAccountDelete = {
   accountId: number;
@@ -782,8 +789,26 @@ const PortfolioPage: React.FC = () => {
         await portfolioApi.deleteTrade(pendingDelete.id);
       } else if (pendingDelete.eventType === 'cash') {
         await portfolioApi.deleteCashLedger(pendingDelete.id);
-      } else {
+      } else if (pendingDelete.eventType === 'corporate') {
         await portfolioApi.deleteCorporateAction(pendingDelete.id);
+      } else if (pendingDelete.eventType === 'position') {
+        // Delete all underlying trades for this (account_id, symbol, market).
+        // Positions are derived from trades; deleting the trades removes the
+        // position automatically on the next snapshot.
+        const matchingTrades = tradeEvents.filter(
+          (t) =>
+            t.accountId === pendingDelete.accountId &&
+            t.symbol === pendingDelete.symbol &&
+            t.market === pendingDelete.market,
+        );
+        if (matchingTrades.length === 0) {
+          setWriteWarning(
+            `未找到 ${pendingDelete.symbol} 的交易记录，可能已被其他操作删除。`,
+          );
+        }
+        for (const trade of matchingTrades) {
+          await portfolioApi.deleteTrade(trade.id);
+        }
       }
       setPendingDelete(null);
       if (nextPage !== eventPage) {
@@ -1201,9 +1226,9 @@ const PortfolioPage: React.FC = () => {
             <div className="overflow-x-auto">
               <table className="min-w-[860px] w-full text-sm">
                 <thead className="text-xs text-secondary border-b border-white/10">
-                  <tr>
-                    <th className="text-left py-2 pr-2">{text.account}</th>
-                    <th className="text-left py-2 pr-2">{text.code}</th>
+                    <tr>
+                      <th className="text-left py-2 pr-2">{text.stockName}</th>
+                      <th className="text-left py-2 pr-2">{text.code}</th>
                     <th className="text-right py-2 pr-2">{text.quantity}</th>
                     <th className="text-right py-2 pr-2">{text.avgCost}</th>
                     <th className="text-right py-2 pr-2">{text.lastPrice}</th>
@@ -1221,7 +1246,7 @@ const PortfolioPage: React.FC = () => {
                     const signal = signalByPositionKey.get(rowKey);
                     return (
                     <tr key={rowKey} className="border-b border-white/5">
-                      <td className="py-2 pr-2 text-secondary">{row.accountName}</td>
+                      <td className="py-2 pr-2 text-secondary">{row.name || row.symbol}</td>
                       <td className="py-2 pr-2 font-mono text-foreground">{row.symbol}</td>
                       <td className="py-2 pr-2 text-right">{row.quantity.toFixed(2)}</td>
                       <td className="py-2 pr-2 text-right">{row.avgCost.toFixed(4)}</td>
@@ -1258,14 +1283,33 @@ const PortfolioPage: React.FC = () => {
                         <PortfolioSignalSummary item={signal} loading={portfolioSignalsLoading} />
                       </td>
                       <td className="py-2 text-right">
-                        <button
-                          type="button"
-                          onClick={() => void handleAnalyzePosition(row)}
-                          disabled={analyzing}
-                          className="btn-secondary px-2 py-1 text-xs disabled:cursor-wait disabled:opacity-60"
-                        >
-                          {analyzing ? text.submitting : text.analyze}
-                        </button>
+                        <div className="flex flex-col items-end gap-1">
+                          <button
+                            type="button"
+                            onClick={() => void handleAnalyzePosition(row)}
+                            disabled={analyzing}
+                            className="btn-secondary px-2 py-1 text-xs disabled:cursor-wait disabled:opacity-60"
+                          >
+                            {analyzing ? text.submitting : text.analyze}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const positionLabel = `${row.accountName} / ${row.symbol}`;
+                              openDeleteDialog({
+                                eventType: 'position',
+                                accountId: row.accountId,
+                                symbol: row.symbol,
+                                market: row.market,
+                                message: `确认删除持仓 ${positionLabel}？此操作会删除该持仓下的所有交易记录，且无法撤销。`,
+                              });
+                            }}
+                            className="btn-secondary px-2 py-1 text-xs text-danger hover:bg-danger/10"
+                            title="删除该持仓下的所有交易记录"
+                          >
+                            删除
+                          </button>
+                        </div>
                       </td>
                     </tr>
                     );

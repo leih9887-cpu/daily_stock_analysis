@@ -28,6 +28,16 @@ STOCK_NAME_MAP = {
     "601166": "兴业银行",
     "600028": "中国石化",
     "600030": "中信证券",
+    # Portfolio holdings referenced by position names (added when portfolio watchlist sync
+    # landed in commit 62f42f6 and the positions table needed a fast stock_name lookup that
+    # did not need DataFetcherManager remote calls).
+    "000999": "华润三九",
+    "002648": "卫星化学",
+    "159215": "平安中证A500ETF",
+    "518880": "华安黄金ETF",
+    "600096": "云天化",
+    "600196": "复星医药",
+    "600312": "平高电气",
     "600031": "三一重工",
     "600050": "中国联通",
     "600104": "上汽集团",

@@ -1141,16 +1141,31 @@ class PortfolioService:
 
     @staticmethod
     def _resolve_position_name(symbol: str) -> Optional[str]:
-        """Best-effort stock name lookup; never raises and never blocks on realtime sources."""
+        """Best-effort stock name lookup; reads a static Chinese name map first and never blocks on realtime sources.
+
+        We deliberately avoid ``DataFetcherManager.get_stock_name`` here because snapshot
+        is called frequently and the fetcher fallback chain can take 5-15s per symbol when
+        the in-memory cache is cold, blowing past the Web frontend fetch timeout and leaving
+        the positions table empty. The static ``STOCK_NAME_MAP`` covers common A-share tickers
+        and falls back to a normalised-formatted synthetic label when missing.
+        """
+        normalized = canonical_stock_code(symbol) if symbol else ""
         try:
-            manager = DataFetcherManager()
+            from src.data.stock_mapping import STOCK_NAME_MAP, is_meaningful_stock_name
+
+            static_name = STOCK_NAME_MAP.get(normalized) or STOCK_NAME_MAP.get(symbol)
+            if is_meaningful_stock_name(static_name, normalized or symbol):
+                return static_name
         except Exception:  # pragma: no cover - defensive guard
-            return None
+            pass
+
         try:
-            return manager.get_stock_name(symbol, allow_realtime=False)
+            normalized_for_fallback = normalized or (symbol or "").strip()
+            if normalized_for_fallback:
+                return f"股票{normalized_for_fallback}"
         except Exception:
-            logger.warning("[PortfolioService] get_stock_name failed for %s", symbol, exc_info=True)
             return None
+        return None
 
     def _resolve_position_price(
         self,
